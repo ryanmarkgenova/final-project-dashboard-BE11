@@ -1,5 +1,5 @@
 ---
-title: "Final Project - Data Analysis & Dashboard"
+title: "Food Access and Postsecondary Institutions in Washington State"
 author: "Ryan Mark Genova & Diya Gautam"
 date: 03.06.26
 format:
