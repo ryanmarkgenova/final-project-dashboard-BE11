@@ -1,0 +1,416 @@
+---
+title: "Final Project - Data Analysis & Dashboard"
+author: "Ryan Mark Genova & Diya Gautam"
+date: 03.06.26
+format:
+  dashboard: 
+    theme: journal
+    embed-resources: true
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+library(tidyverse)
+library(ggplot2)
+library(sf)
+library(tigris)
+library(leaflet)
+library(viridis)
+library(plotly)
+
+
+#Load Data
+food_access <- read_csv("FoodAccessResearchAtlasData2019 - Washington.csv")
+schools <- read_csv("Postsecondary_School_Locations_Current_2759246932691603707.csv")
+
+#Prepare schools data
+schools_wa <- schools |>
+  filter(`Reported state` == "WA") |>
+  select(`Name of institution`, `County name`,
+         `Latitude of school location`, `Longitude of school location`)
+
+schools_by_county <- schools_wa |>
+  group_by(`County name`)  |>
+  summarize(
+    num_schools = n(),
+    .groups = "drop"
+  )
+
+#Join Data
+joined_data <- food_access |>
+  left_join(
+    schools_by_county,
+    by = c("County" = "County name")
+  )
+
+#Clean Data
+joined_clean <- joined_data |>
+  mutate(
+    low_access = if_else(LILATracts_1And10 == 1,"Low Access","Not Low Access"),
+    MedianFamilyIncome = as.numeric(MedianFamilyIncome)
+    )
+
+#County summary for plots
+county_summary <- joined_clean |>
+  group_by(County) |>
+  summarize(
+    num_schools = first(replace_na(num_schools, 0)),
+    median_income = mean(MedianFamilyIncome, na.rm = TRUE),
+    percent_low_access = mean(LILATracts_1And10, na.rm = TRUE) * 100,
+    .groups = "drop"
+  )
+
+#Grouped county summary
+county_summary2 <- county_summary |>
+  mutate(
+    school_group = case_when(
+      num_schools == 0 ~ "No Schools",
+      num_schools <= 5 ~ "1-5 Schools",
+      num_schools <= 15 ~ "6-15 Schools",
+      TRUE ~ "16+ Schools"
+    )
+  ) |>
+  group_by(school_group) |>
+  summarize(
+    avg_low_access = mean(percent_low_access, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+#WA county map data
+wa_counties <- counties(state = "WA", cb = TRUE, class = "sf") |>
+  select(NAME, geometry)
+
+map_data <- wa_counties |>
+  mutate(County = paste(NAME, "County")) |>
+  left_join(county_summary, by = "County")
+```
+
+# Project Overview
+
+![](images/clipboard-799540033.jpeg)
+
+#### About This Project
+
+**About This Project**
+
+This dashboard explores whether living near major post secondary institutions is associated with better geographic access to affordable food in Washington State.
+
+### Why This Matters
+
+**Why this matters and our questions**
+
+Food insecurity remains a persistent issue across the United States, even in areas that appear economically prosperous. A lack of geographic access to affordable and nutritious food is often described as living in a “food desert,” where residents have limited access to grocery stores or affordable and healthy food options. According to research and reporting on food insecurity in Washington, rising food costs, income inequality, and transportation barriers continue to affect many households’ ability to reliably access food ([Rising Food Insecurity in Washington: What’s Behind It and What We Can Do](https://waeconomicjusticealliance.com/rising-food-insecurity-in-washington-whats-behind-it-and-what-we-can-do/)). Living and studying near the University of Washington in Seattle, we frequently encounter visible signs of food insecurity affecting both students and the surrounding communities. This project explores whether proximity to universities might be associated with improved access to food resources.
+
+This project investigates the central question: **Does living near a major university improve geographic access to affordable food?**
+
+To explore this question, we created and examined three specific questions:
+
+-   **Is income related to food access?** Do counties with higher median family income have fewer low-income, low-access census tracts?\
+-   **Do counties with more post secondary institutions have higher median family income** compared to counties with fewer or no institutions?\
+-   **Do counties with more post secondary institutions have fewer low-income, low-access census tracts?**
+
+Together, these questions allow us to explore whether universities may indirectly influence food access through economic conditions within a county.
+
+### Data Sources
+
+**Our Data Sources**
+
+To answer these questions, we combine two publicly available data sets. Our first data set comes from the U.S. Department of Agriculture (USDA) Economic Research Service Food Access Research Atlas, which provides measures of food access at the census tract level across the United States. The data set includes indicators such as whether a tract is considered low-income and low-access. The data can be accessed here: <https://www.ers.usda.gov/data-products/food-access-research-atlas/download-the-data/>.
+
+Our second data set contains information about the locations of post secondary institutions across the United States and comes from the National Center for Education Statistics (NCES) Integrated Post secondary Education Data System (IPEDS). This data set provides geographic information about colleges and universities, which allows us to measure the number of institutions located within each county. The data set is available here: <https://nces.ed.gov/programs/edge/Geographic/SchoolLocations>.
+
+### Ethical Considerations and Limitations
+
+**Ethical Considerations and Limitations**
+
+Understanding the relationship between universities, income, and food access is important because it helps us comprehend how economic and institutional factors may influence basic living conditions in communities. Food is a fundamental need, yet many households still struggle to obtain consistent access to affordable and nutritious food. By examining these patterns, our analysis encourages greater awareness of food insecurity and helps highlight disparities that may exist within communities that otherwise appear economically stable.
+
+However, there are important ethical limitations to consider when working with these data sets. County-level data may mask variation within smaller neighborhoods, meaning that communities experiencing severe food insecurity may be underrepresented in aggregated statistics. Additionally, the data measure geographic access to food retailers rather than actual food purchasing behavior, which means they cannot fully capture individual, food-insecurity-specific experiences. Some communities may also be underrepresented due to data collection limitations. These constraints mean that our findings should be interpreted as descriptive patterns rather than definitive explanations of overall food insecurity in relation to geographical location.
+
+### Dataset 1: Food Access Research Atlas
+
+**Data Context**
+
+\_\_\_\_\_\_\_\_\_\_
+
+**Data set 1: Food Access Research Atlas**
+
+Our first data set comes from the U.S. Department of Agriculture (USDA) Economic Research Service (ERS) Food Access Research Atlas. The data set is publicly available through the USDA website and can be accessed here:
+
+<https://www.ers.usda.gov/data-products/food-access-research-atlas/download-the-data/>
+
+This data set was created by the U.S. Department of Agriculture’s Economic Research Service, which collects and publishes data related to food systems, agriculture, and food access across the United States. The Food Access Research Atlas measures geographic access to healthy and affordable food at the census tract level. It identifies areas classified as “low-income” and “low-access,” commonly used indicators of potential food deserts.
+
+The data set records census tract characteristics, including whether a tract is low-income and whether residents have limited access to grocery stores within a specified distance. These measurements are calculated using population statistics, income thresholds, and geographic distance to supermarkets or large grocery retailers. The data set contains over 73,000 census tract observations across U.S. states and territories.
+
+Most of the measures in this data set are based on U.S. Census data and geographic analysis from the 2015–2019 American Community Survey, combined with spatial data identifying food retailers. Because the data set covers the entire United States at the census tract level, it provides a broad and relatively comprehensive picture of geographic food access. However, one limitation is that the data set measures potential access to food retailers rather than actual food purchasing behavior, meaning it cannot fully capture whether residents are able to afford or obtain food in practice. Additionally, being such a big data set, aggregating the data to the county level may hide smaller neighborhood-level disparities.
+
+**Data set 2: Post secondary Institution Locations (IPEDS)** Our second data set contains information on the locations of post secondary institutions in the United States. The data comes from the National Center for Education Statistics (NCES) Integrated Post secondary Education Data System (IPEDS) and is publicly available here:
+
+<https://nces.ed.gov/programs/edge/Geographic/SchoolLocations>
+
+This data set is produced by the National Center for Education Statistics, a division of the U.S. Department of Education that collects and maintains data on educational institutions across the country. The data set includes geographic information about colleges and universities, including their locations and identifying information, which helps with examining how educational institutions are distributed across counties and regions. Institutions report their information annually through the IPEDS data collection system, which gathers data from accredited post secondary institutions that participate in federal student financial aid programs.
+
+The data set includes individual post secondary institutions and their geographic coordinates/location. These institutions include public universities, private universities, community colleges, and other accredited post secondary schools that report data through the IPEDS system. Each record, collected in the 2024–25 school year, represents a single institution, and the data set includes nearly 7,000 institutions located across the United States. The data set captures nearly all accredited post secondary institutions in the United States and provides a strong representation of where universities and colleges are located geographically. However, one limitation is that the data set only records the presence and location of institutions and does not measure the size, economic impact, or student population of each university. As a result, large universities and small institutions are counted equally when analyzing the number of institutions within a county.
+
+# Group Information
+
+**Our Group** \_\_\_\_\_\_\_\_
+
+-   **TA:** Runa He\
+
+-   **Lab Section:** BE\
+
+-   **Topic of Interest:**\
+    Our group was interested in exploring geographic food access patterns across Washington State, particularly in areas surrounding major college campuses. Essentially, our primary focus was whether living near college campuses, often argued to be sites of opportunity and privilege, increases physical access to food. By analyzing data on location and proximity, we aimed to better understand how institutional presence may intersect with patterns of access and disparity.
+
+-   **Team Members:**
+
+    -   **Ryan Mark Genoa**
+        -   **Affiliation:** The Information School, University of Washington\
+        -   **Email:** ryangen\@uw.edu\
+        -   **Interests:** Using data visualization to examine social justice issues such as food access and economic inequality, particularly within urban communities. Interested in informatics and how data analysis and visualization tools can make structural disparities more visible and provide security to wider groups, especially the communities directly affected.
+    -   **Diya Gautam**
+        -   **Affiliation:** School of Public Health, University of Washington\
+        -   **Email:** diyag27\@uw.edu\
+        -   **Interests:** Understanding how geographic location affects access to essential resources, such as food, and how institutional environments shape health-related outcomes. Interested in applying informatics tools and data analysis methods to support community-level health and equity.
+
+# Join Strategy/Summary
+
+```{r}
+#| label: county-summary-preview
+#| echo: true
+county_summary
+```
+
+These data sets are joined at the county level so that we can examine how the number of post secondary institutions in a county relates to county income levels and patterns of food access.
+
+# Income and Food Access (Q1)
+
+### Research Question
+
+**Do counties with higher median family income have fewer low-income, low-access census tracts?**
+
+Income is one of the strongest predictors of food access. Communities with higher incomes may have better grocery availability, transportation options, and purchasing power.
+
+### Visualization
+
+```{r}
+p <-ggplot(county_summary,
+       aes(x = median_income, y = percent_low_access, 
+           text = paste("County:", County, 
+                        "<br>Median Income:", scales::dollar(median_income), 
+                        "<br>Low Food Access:", percent_low_access, "%"))) +
+  geom_point(color = "steelblue", size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "darkred") +
+  labs(
+    title = "Median Family Income vs Low Food Access",
+    x = "Median Family Income (County Average)",
+    y = "Percent of Low-Access Census Tracts"
+  ) + 
+  scale_x_continuous(labels = scales::dollar) + 
+  theme_minimal()
+
+ggplotly(p, tooltip = "text")
+```
+
+### Interpretation
+
+**Interpretation** This scatter plot shows a negative relationship between median family income and the percentage of low-access census tracts across counties in Washington State. As median family income increases, the percentage of census tracts classified as low food access generally decreases. This suggests that higher income counties tend to have better geographic access to affordable food, while counties with lower median incomes are more likely to experience limited food access. Although the points show some variation, the downward trend line indicates that income may plan an important role in explaining differences in food accessibility between counties.
+
+# Universities and Income(Q2)
+
+### Research Question
+
+**Do counties with more post secondary institutions have higher median family income compared to counties with fewer/no institutions?**
+
+This assists us in identifying whether proximity to post secondary institutions/universities have any affect on family wealth, which translates over to buying power.
+
+```{r}
+
+p2 <- county_summary |>
+  mutate(
+    school_group = case_when(
+      num_schools == 0 ~ "No Schools",
+      num_schools <= 5 ~ "1-5 Schools",
+      num_schools <= 15 ~ "6-15 Schools",
+      TRUE ~ "16+ Schools"
+    )
+  ) |>
+  ggplot(aes(x = school_group, y = median_income, fill = school_group)) +
+  geom_boxplot() +
+  labs(
+    title = "Median Family Income by
+    Number of Postsecondary Institutions",
+    x = "Number of Postsecondary Instituions in County",
+    y = "Median Family Income"
+  ) +
+  scale_y_continuous(labels = scales::dollar) +
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplotly(p2)
+```
+
+### Interpretation
+
+**Interpretation**
+
+This box plot compares the distribution of median family income across counties grouped by the number of post secondary institutions located within them. Counties with no universities tend to have the lowest median family incomes, generally around the low \$60,000 range. Counties with a small number of institutions (1-5 schools) show slightly higher median incomes among the groups. The county with 16 or more institutions shows the highest income level overall, although this likely represents a major urban county such as King county. Overall, the pattern suggest that counties with more post secondary institutions tend to have higher median family incomes, supporting the idea that universities may contribute to stronger local economic conditions.
+
+# Universities and Food Access(Q3)
+
+### Research Question
+
+**Do counties with more post secondary institutions have fewer low-income, low-access census tracts?**
+
+This question directly addresses our central hypothesis about whether living near universities is associated with better food accessibility.
+
+```{r}
+p3 <- county_summary |>
+  mutate(
+    school_group = case_when(
+      num_schools == 0 ~ "No Schools",
+      num_schools <= 5 ~ "1-5 Schools",
+      num_schools <= 15 ~ "6-15 Schools",
+      TRUE ~ "16+ Schools"
+    ),
+    school_group = factor(
+      school_group,
+      levels = c("No Schools", "1-5 Schools", "6-15 Schools", "16+ Schools" )
+    )
+  ) |>
+  group_by(school_group) |>
+  summarize(
+    avg_low_access = mean(percent_low_access, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  ggplot(aes(x = school_group, y = avg_low_access, fill = avg_low_access)) +
+  geom_col(width = 0.6) +
+  scale_fill_viridis_c(labels = scales::percent_format(scale = 1)) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  labs(
+    title = "Average Low Food Access by 
+    Number of Postsecondary Institutions",
+    x = "Postsecondary Instituions in County",
+    y = "Average % of Low-Access Census Tracts ",
+    fill = "Average % Low Access"
+  ) + 
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 25, hjust = 1),
+    plot.title = element_text(face = "bold"),
+  )
+
+ggplotly(p3, tooltip = "text") 
+  
+```
+
+### Interpretation
+
+**Interpretation**
+
+This visualization shows the average percentage of low-income, low-access census tracts in counties grouped by the number of post secondary institutions. Counties with no universities have the highest average level of low food access, at roughly 31%, indicating that a larger share of their census tracts experience limited geographic access to affordable food. As the number of post secondary institutions increases, the average percentage of low-access tracts generally decreases. Counties with 1–5 institutions show about 19% low access, counties with 6–15 institutions show around 16%, and counties with 16 or more institutions have the lowest level at approximately 6%.
+
+# Universities and Food Access Map
+
+### Research Question
+
+**Does living near a major university improve geographic access to affordable food?**
+
+This interactive map visualizes the relationship between university locations and food access across Washington State. Counties are shaded based on the percentage of low-income, low-access census tracts, while red points represent post secondary institutions. Users can zoom and explore counties to examine whether areas with more universities tend to experience lower levels of food access challenges.
+
+```{r}
+schools_sf <- schools_wa |>
+  st_as_sf(
+    coords = c("Longitude of school location",
+               "Latitude of school location"),
+    crs = 4326
+  )
+
+pal <- colorNumeric(
+  palette = "viridis",
+  domain = map_data$percent_low_access
+)
+
+leaflet() |>
+  
+  addProviderTiles("CartoDB.Positron") |>
+  
+  addPolygons(
+    data = map_data,
+    fillColor = ~pal(percent_low_access),
+    weight = 1,
+    color = "white",
+    fillOpacity = 0.8,
+    
+    label = ~paste0(
+      "<b>", County, "</b><br>",
+      "Low Food Access: ",
+      round(percent_low_access,1), "%"
+    ),
+      
+    highlightOptions = highlightOptions(
+      weight = 3,
+      color = "#666",
+      fillOpacity = 0.9,
+      bringToFront = TRUE
+    )
+  ) |>
+  
+  addCircleMarkers(
+    data = schools_sf,
+    radius = 5,
+    color = "red",
+    fillOpacity = 0.9,
+     label = ~`Name of institution`,
+    
+  ) |>
+  
+  addLegend(
+    pal = pal,
+    values = map_data$percent_low_access,
+    title = "% Low Food Access",
+    position = "bottomright"
+  )
+```
+
+### Interpretation
+
+**Interpretation**
+
+This interactive map showcases geographic patterns between the distribution of universities and food access across Washington counties. Counties with large university presence, specifically in western Washington near Seattle and other urban areas, tend to show lower percentages of low-access census tracts. In contrast, more rural counties with few or no universities often display higher levels of low food access. This pattern basically suggests that counties with major universities may benefit from stronger economic infrastructure, transportation systems, and options to retail that improve residents geographic access to food. However, this relationship may also reflect broader differences between urban and rural regions rather than the direct impact of universities alone.
+
+# Coding Notes
+
+**Coding Notes**
+
+Leaflet - Leaflet was used to create the interactive geographic visualization of Washington counties and university locations. The tool allowed us to let users zoom, pan, and interact with the data which could not have been achieved with just ggplot alone. We learned to use Leaflet through documentation and examples provided in the official Leaflet R package website.
+
+sf(simple features for spatial data) - The sf package was used to convert latitude and longitude coordinates into spatial objects so they could be plotted on a map. This tool basically allows geographic data to be handled in R and enabled spatial visualization that would have not been possible with normal data frames. We learned to use this package through online documentation.
+
+Tigris - The Tigris package was used to download county boundary shape files for Washington State. This allowed us to visualize food access data geographically at the county level. Without this package, we would not have access to the spatial boundary data required to construct the map. We learned to use this package by referencing examples from the package documentation.
+
+Viridis Color Scales - The viridis color scale was used to represent the percentage of low food access across counties. These color palettes are designed to be helpful for those who are colorblind. We learned about viridis through ggplot documentation and data visualization resources.
+
+# Conclusion
+
+### Major Takeaways
+
+**Major Takeaways**
+
+This analysis explored how economic conditions and the presence of post secondary institutions may relate to food access across Washington State. One major takeaway from the project is that counties with higher median family incomes generally experience lower percentages of low-income, low-access census tracts. This suggests that economic resources play an important role in determining whether communities have reliable geographic access to affordable food.
+
+A second key finding is that counties with more post secondary institutions tend to have higher median family incomes. Universities often function as major economic centers that attract businesses, employment opportunities, and infrastructure investment. These economic factors may contribute to improved community resources and services.
+
+Finally, the analysis suggests that counties with more universities tend to have lower levels of food access challenges. While this pattern does not prove that universities directly reduce food insecurity, it may indicate that counties with large educational institutions also benefit from stronger economic and transportation systems that improve access to grocery stores and other food retailers.
+
+### Limitations and Future Research
+
+**Limitations and Future Research**
+
+Although the patterns observed in this dashboard provide useful insights, they should be interpreted carefully. The analysis uses county-level averages, which may hide significant variation between neighborhoods. Additionally, the food access data set measures geographic proximity to food retailers rather than whether individuals can actually afford or obtain food.
+
+Future research could expand this project by examining food access at the census tract level rather than aggregating to counties. Researchers could also incorporate additional variables such as public transportation access, population density, or the size of universities to better understand how institutional presence may influence local food systems.
